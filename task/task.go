@@ -1,10 +1,18 @@
 package task
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"os"
 	"time"
 
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
 	"github.com/google/uuid"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 type State int
@@ -36,4 +44,101 @@ type TaskEvent struct {
 	State     State
 	Timestamp time.Time
 	Task      Task
+}
+
+type Config struct {
+	Name          string
+	AttachStdin   bool
+	AttachStdout  bool
+	AttachStderr  bool
+	Cmd           []string
+	Image         string
+	Memory        int64
+	Disk          int64
+	Env           []string
+	RestartPolicy string
+}
+
+type Docker struct {
+	Client      *client.Client
+	Config      Config
+	ContainerId string
+}
+
+type DockerResult struct {
+	Error       error
+	Action      string
+	ContainerId string
+	Result      string
+}
+
+func (d *Docker) Run() DockerResult {
+	ctx := context.Background()
+	reader, err := d.Client.ImagePull(ctx, d.Config.Image, client.ImagePullOptions{})
+	if err != nil {
+		log.Printf("Error pulling image %s: %v\n", d.Config.Image, err)
+		return DockerResult{Error: err}
+	}
+
+	io.Copy(os.Stdout, reader)
+
+	rp := container.RestartPolicy{
+		Name: container.RestartPolicyMode(d.Config.RestartPolicy),
+	}
+	r := container.Resources{
+		Memory: d.Config.Memory,
+	}
+	cc := container.Config{
+		Image: d.Config.Image,
+		Env:   d.Config.Env,
+	}
+	hc := container.HostConfig{
+		RestartPolicy:   rp,
+		Resources:       r,
+		PublishAllPorts: true,
+	}
+
+	resp, err := d.Client.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name:       d.Config.Name,
+		Config:     &cc,
+		HostConfig: &hc,
+	})
+	if err != nil {
+		log.Printf("Error creating container using image %s: %v\n", d.Config.Image, err)
+		return DockerResult{Error: err}
+	}
+
+	_, err = d.Client.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{})
+
+	if err != nil {
+		log.Printf("Error starting container %s: %v\n", resp.ID, err)
+		return DockerResult{Error: err}
+	}
+
+	out, err := d.Client.ContainerLogs(ctx, resp.ID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+
+	if err != nil {
+		log.Printf("Error getting logs for container %s: %v\n", resp.ID, err)
+		return DockerResult{Error: err}
+	}
+
+	stdcopy.StdCopy(os.Stdout, os.Stderr, out)
+
+	d.ContainerId = resp.ID
+	return DockerResult{Error: nil, Action: "started", ContainerId: resp.ID, Result: "success"}
+}
+
+func (d *Docker) Stop() DockerResult {
+	log.Printf("Attempting to stop container %v", d.ContainerId)
+	ctx := context.Background()
+	_, err := d.Client.ContainerStop(ctx, d.ContainerId, client.ContainerStopOptions{})
+	if err != nil {
+		fmt.Println(err)
+		panic(err)
+	}
+	_, err = d.Client.ContainerRemove(ctx, d.ContainerId, client.ContainerRemoveOptions{})
+	if err != nil {
+		panic(err)
+	}
+	return DockerResult{Action: "stop", Result: "success", Error: nil}
 }

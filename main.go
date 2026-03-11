@@ -6,13 +6,20 @@ import (
 	"jawad-ch/orchestrator/node"
 	"jawad-ch/orchestrator/task"
 	"jawad-ch/orchestrator/worker"
+	"os"
 	"time"
 
 	"github.com/golang-collections/collections/queue"
 	"github.com/google/uuid"
+	"github.com/moby/moby/client"
 )
 
 func main() {
+	if os.Getenv("DOCKER_HOST") == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			os.Setenv("DOCKER_HOST", fmt.Sprintf("unix://%s/.docker/desktop/docker.sock", home))
+		}
+	}
 	t := task.Task{
 		ID:     uuid.New(),
 		Name:   "Task-1",
@@ -59,4 +66,52 @@ func main() {
 		Role:   "worker",
 	}
 	fmt.Printf("node: %v\n", n)
+	fmt.Printf("create a test container\n")
+
+	dockerTask, createResult := createContainer()
+	if createResult.Error != nil {
+		fmt.Printf("%s", createResult.Error.Error())
+		os.Exit(1)
+	}
+
+	time.Sleep(time.Second * 5)
+
+	fmt.Printf("stopping container %s\n", createResult.ContainerId)
+	_ = stopContainer(dockerTask)
+}
+
+func createContainer() (*task.Docker, *task.DockerResult) {
+	c := task.Config{
+		Name:  "test-container-1",
+		Image: "postgres:13",
+		Env: []string{
+			"POSTGRES_USER=cube",
+			"POSTGRES_PASSWORD=secret",
+		},
+	}
+	dc, _ := client.New(client.FromEnv)
+	d := task.Docker{
+		Client: dc,
+		Config: c,
+	}
+	result := d.Run()
+	if result.Error != nil {
+		fmt.Printf("%v\n", result.Error)
+		return nil, &result
+	}
+
+	fmt.Printf(
+		"Container %s is running with config %v\n", result.ContainerId, c)
+	return &d, &result
+}
+
+func stopContainer(d *task.Docker) *task.DockerResult {
+	result := d.Stop()
+	if result.Error != nil {
+		fmt.Printf("%v\n", result.Error)
+		return nil
+	}
+	fmt.Printf(
+		"Container %s has been stopped and removed\n", result.ContainerId)
+	return &result
 }
