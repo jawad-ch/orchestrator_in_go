@@ -60,9 +60,8 @@ type Config struct {
 }
 
 type Docker struct {
-	Client      *client.Client
-	Config      Config
-	ContainerId string
+	Client *client.Client
+	Config Config
 }
 
 type DockerResult struct {
@@ -124,19 +123,18 @@ func (d *Docker) Run() DockerResult {
 
 	stdcopy.StdCopy(os.Stdout, os.Stderr, out)
 
-	d.ContainerId = resp.ID
 	return DockerResult{Error: nil, Action: "started", ContainerId: resp.ID, Result: "success"}
 }
 
-func (d *Docker) Stop() DockerResult {
-	log.Printf("Attempting to stop container %v", d.ContainerId)
+func (d *Docker) Stop(id string) DockerResult {
+	log.Printf("Attempting to stop container %v", id)
 	ctx := context.Background()
-	_, err := d.Client.ContainerStop(ctx, d.ContainerId, client.ContainerStopOptions{})
+	_, err := d.Client.ContainerStop(ctx, id, client.ContainerStopOptions{})
 	if err != nil {
 		fmt.Println(err)
 		panic(err)
 	}
-	_, err = d.Client.ContainerRemove(ctx, d.ContainerId, client.ContainerRemoveOptions{})
+	_, err = d.Client.ContainerRemove(ctx, id, client.ContainerRemoveOptions{})
 	if err != nil {
 		panic(err)
 	}
