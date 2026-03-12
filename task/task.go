@@ -27,6 +27,7 @@ const (
 
 type Task struct {
 	ID            uuid.UUID
+	ContainerID   string
 	Name          string
 	State         State
 	Image         string
@@ -59,9 +60,29 @@ type Config struct {
 	RestartPolicy string
 }
 
+func NewConfig(t *Task) Config {
+	return Config{
+		Name:   t.Name,
+		Cmd:    []string{},
+		Image:  t.Image,
+		Memory: int64(t.Memory),
+		Disk:   int64(t.Disk),
+		// Env: t.ExposedPorts,
+		RestartPolicy: t.RestartPolicy,
+	}
+}
+
 type Docker struct {
 	Client *client.Client
 	Config Config
+}
+
+func NewDocker(config *Config) *Docker {
+	dc, _ := client.New(client.FromEnv)
+	return &Docker{
+		Client: dc,
+		Config: *config,
+	}
 }
 
 type DockerResult struct {
