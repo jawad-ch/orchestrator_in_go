@@ -7,6 +7,8 @@ import (
 	"jawad-ch/orchestrator/task"
 	"jawad-ch/orchestrator/worker"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/golang-collections/collections/queue"
@@ -16,8 +18,9 @@ import (
 
 func main() {
 	if os.Getenv("DOCKER_HOST") == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			os.Setenv("DOCKER_HOST", fmt.Sprintf("unix://%s/.docker/desktop/docker.sock", home))
+		out, err := exec.Command("docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}").Output()
+		if err == nil && len(out) > 0 {
+			os.Setenv("DOCKER_HOST", strings.TrimSpace(string(out)))
 		}
 	}
 	t := task.Task{
