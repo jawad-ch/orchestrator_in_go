@@ -2,10 +2,10 @@ package task
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/docker/docker/pkg/stdcopy"
@@ -38,6 +38,23 @@ type Task struct {
 	RestartPolicy string
 	StartTime     time.Time
 	FinishTime    time.Time
+}
+
+var stateTransitionMap = map[State][]State{
+	Pending:   {Scheduled},
+	Scheduled: {Scheduled, Running, Failed},
+	Running:   {Running, Completed, Failed},
+	Completed: {},
+	Failed:    {},
+}
+
+func Contains(states []State, state State) bool {
+	return slices.Contains(states, state)
+}
+
+func (t *Task) ValidStateTransition(dst State) bool {
+	srcState := t.State
+	return Contains(stateTransitionMap[srcState], dst)
 }
 
 type TaskEvent struct {
@@ -152,12 +169,12 @@ func (d *Docker) Stop(id string) DockerResult {
 	ctx := context.Background()
 	_, err := d.Client.ContainerStop(ctx, id, client.ContainerStopOptions{})
 	if err != nil {
-		fmt.Printf("Error stopping container: %v\n", err)
+		log.Printf("Error stopping container: %v\n", err)
 		return DockerResult{Action: "stop", Result: "failed", Error: err}
 	}
 	_, err = d.Client.ContainerRemove(ctx, id, client.ContainerRemoveOptions{})
 	if err != nil {
-		fmt.Printf("Error removing container: %v\n", err)
+		log.Printf("Error removing container: %v\n", err)
 		return DockerResult{Action: "remove", Result: "failed", Error: err}
 	}
 	return DockerResult{Action: "stop", Result: "success", Error: nil}
